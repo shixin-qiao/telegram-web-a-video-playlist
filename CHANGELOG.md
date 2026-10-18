@@ -3,6 +3,12 @@
 本项目的所有重要变更都会记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] - 2026-10-18
+
+### 新增 Added
+- 脚本图标改为 SVG 手绘的左右双箭头图标，通过 `@icon` 元数据引用。
+  Replaced the script icon with a hand-drawn SVG double-arrow icon, referenced via `@icon`.
+
 ## [1.5.0] - 2026-10-18
 
 ### 新增 Added

@@ -3,13 +3,14 @@
 // @name:en      Telegram Web A Video Playlist
 // @name:zh-CN   Telegram Web A 视频播完自动切换
 // @namespace    local.codex.telegram
-// @version      1.5.0
+// @version      1.5.1
 // @description  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
 // @description:en  Telegram Web A media viewer video playlist: auto fullscreen on play, auto-play the next/previous video when one ends, and auto-skip images. Playlist, auto fullscreen and image skipping are configurable.
 // @description:zh-CN  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
 // @match        https://web.telegram.org/a/*
 // @run-at       document-start
 // @noframes
+// @icon         https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/docs/icon.svg
 // @author       shixin-qiao
 // @license      MIT
 // @homepageURL  https://github.com/shixin-qiao/telegram-web-a-video-playlist
