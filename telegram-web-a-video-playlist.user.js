@@ -1,11 +1,21 @@
 // ==UserScript==
 // @name         Telegram Web A 视频播完自动切换
+// @name:en      Telegram Web A Video Playlist
+// @name:zh-CN   Telegram Web A 视频播完自动切换
 // @namespace    local.codex.telegram
-// @version      1.4.0
-// @description  Telegram Web A 媒体查看器中的视频（包括循环视频）开始播放时自动全屏，并连播下一条/上一条视频：播完保持全屏直接切下一条，图片自动跳过，直到最后一条播完或手动退出全屏。
+// @version      1.5.0
+// @description  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
+// @description:en  Telegram Web A media viewer video playlist: auto fullscreen on play, auto-play the next/previous video when one ends, and auto-skip images. Playlist, auto fullscreen and image skipping are configurable.
+// @description:zh-CN  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
 // @match        https://web.telegram.org/a/*
 // @run-at       document-start
 // @noframes
+// @author       shixin-qiao
+// @license      MIT
+// @homepageURL  https://github.com/shixin-qiao/telegram-web-a-video-playlist
+// @supportURL   https://github.com/shixin-qiao/telegram-web-a-video-playlist/issues
+// @compatible   chrome
+// @compatible   edge
 // @downloadURL  https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/telegram-web-a-video-playlist.user.js
 // @updateURL    https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/telegram-web-a-video-playlist.user.js
 // @grant        GM_getValue
@@ -20,6 +30,15 @@
   const DEFAULT_DIRECTION = 'next';
   const AUTO_FULLSCREEN_KEY = 'autoFullscreen';
   const DEFAULT_AUTO_FULLSCREEN = true;
+  const PLAYLIST_ENABLED_KEY = 'playlistEnabled';
+  const DEFAULT_PLAYLIST_ENABLED = true;
+  const SKIP_IMAGES_KEY = 'skipImages';
+  const DEFAULT_SKIP_IMAGES = true;
+  const LOG_PREFIX = '[TG Playlist]';
+
+  // 语言：中文优先，仅英文环境使用英文
+  const isEn = /^en/i.test(navigator.language || '');
+  const T = (zh, en) => (isEn ? en : zh);
 
   // 连播参数
   const SWITCH_POLL_INTERVAL = 100;   // 检查媒体是否已切换的间隔
@@ -38,12 +57,16 @@
   // 是否由脚本主动退出全屏（用于区分用户手动退出）
   let scriptExitingFullscreen = false;
   let viewerWasOpen = false;
+  let fullscreenRejectedLogged = false;
 
   /* ---------- 菜单命令 ---------- */
 
   const setDirection = (direction) => {
     GM_setValue(DIRECTION_KEY, direction);
-    window.alert(`Telegram 视频自动切换方向已设为：${direction === 'next' ? '下一条' : '上一条'}`);
+    window.alert(T(
+      `Telegram 视频自动切换方向已设为：${direction === 'next' ? '下一条' : '上一条'}`,
+      `Playback direction set to: ${direction === 'next' ? 'Next' : 'Previous'}`
+    ));
   };
 
   const isAutoFullscreenEnabled = () => (
@@ -54,16 +77,51 @@
     const next = !isAutoFullscreenEnabled();
     GM_setValue(AUTO_FULLSCREEN_KEY, next);
     if (!next) exitViewerFullscreen();
-    window.alert(`视频自动全屏已${next ? '开启' : '关闭'}`);
+    window.alert(T(
+      `视频自动全屏已${next ? '开启' : '关闭'}`,
+      `Auto fullscreen ${next ? 'enabled' : 'disabled'}`
+    ));
   };
 
-  GM_registerMenuCommand('切换方向：下一条 ▶', () => setDirection('next'));
-  GM_registerMenuCommand('切换方向：上一条 ◀', () => setDirection('previous'));
-  GM_registerMenuCommand('自动全屏：开 / 关', toggleAutoFullscreen);
+  const isPlaylistEnabled = () => (
+    GM_getValue(PLAYLIST_ENABLED_KEY, DEFAULT_PLAYLIST_ENABLED) !== false
+  );
+
+  const togglePlaylist = () => {
+    const next = !isPlaylistEnabled();
+    GM_setValue(PLAYLIST_ENABLED_KEY, next);
+    window.alert(T(
+      `视频连播已${next ? '开启' : '关闭'}`,
+      `Video playlist ${next ? 'enabled' : 'disabled'}`
+    ));
+  };
+
+  const isSkipImagesEnabled = () => (
+    GM_getValue(SKIP_IMAGES_KEY, DEFAULT_SKIP_IMAGES) !== false
+  );
+
+  const toggleSkipImages = () => {
+    const next = !isSkipImagesEnabled();
+    GM_setValue(SKIP_IMAGES_KEY, next);
+    window.alert(T(
+      `连播时跳过图片已${next ? '开启' : '关闭'}`,
+      `Skip images ${next ? 'enabled' : 'disabled'}`
+    ));
+  };
+
+  GM_registerMenuCommand(T('切换方向：下一条 ▶', 'Direction: Next ▶'), () => setDirection('next'));
+  GM_registerMenuCommand(T('切换方向：上一条 ◀', 'Direction: Previous ◀'), () => setDirection('previous'));
+  GM_registerMenuCommand(T('自动全屏：开 / 关', 'Auto Fullscreen: On / Off'), toggleAutoFullscreen);
+  GM_registerMenuCommand(T('连播：开 / 关', 'Playlist: On / Off'), togglePlaylist);
+  GM_registerMenuCommand(T('跳过图片：开 / 关', 'Skip Images: On / Off'), toggleSkipImages);
 
   /* ---------- 基础工具 ---------- */
 
   const delay = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+  const log = (...args) => {
+    console.log(LOG_PREFIX, ...args);
+  };
 
   const isViewerVideo = (target) => {
     const viewer = document.querySelector('#MediaViewer[open]');
@@ -172,7 +230,16 @@
     try {
       const promise = target.requestFullscreen();
       if (promise && typeof promise.then === 'function') {
-        promise.then(done, done);
+        promise.then(done, () => {
+          done();
+          if (!fullscreenRejectedLogged) {
+            fullscreenRejectedLogged = true;
+            log(T(
+              '自动全屏被浏览器拦截（需要用户手势），再次播放时会重试',
+              'Auto fullscreen was blocked (a user gesture is required); it will retry on the next play'
+            ));
+          }
+        });
       } else {
         done();
       }
@@ -240,11 +307,15 @@
     }, ADVANCING_RESET_DELAY);
   };
 
-  // 视频播完后：保持全屏，向后（或向前）寻找下一个视频，途经的图片自动跳过
+  // 视频播完后：保持全屏，向后（或向前）寻找下一个媒体
+  // - 遇到视频：自动播放
+  // - 遇到图片且“跳过图片”开启：继续跳过
+  // - 遇到图片且“跳过图片”关闭：停在这张图片上
+  // - 没有更多媒体：退出全屏
   const advanceToNextVideo = async () => {
     const startedAt = Date.now();
     let skips = 0;
-    let foundNextVideo = false;
+    let foundNextMedia = false;
 
     const first = getActiveMedia();
     if (!first) {
@@ -265,7 +336,13 @@
       previousKey = media.key;
 
       if (media.type === 'video') {
-        foundNextVideo = await waitForVideo();
+        foundNextMedia = await waitForVideo();
+        break;
+      }
+
+      if (media.type === 'image' && !isSkipImagesEnabled()) {
+        // 关闭“跳过图片”时停在这张图片上
+        foundNextMedia = true;
         break;
       }
 
@@ -273,8 +350,9 @@
       await delay(SKIP_DELAY);
     }
 
-    // 没有下一个视频（或查看器已关闭）：结束连播，退出全屏
-    if (!foundNextVideo) {
+    // 没有可停留的媒体（或查看器已关闭）：结束连播，退出全屏
+    if (!foundNextMedia) {
+      log(T('已到最后一条媒体，退出全屏', 'Reached the last media, exiting fullscreen'));
       exitViewerFullscreen();
     }
     finishAdvancing();
@@ -287,6 +365,7 @@
       exitViewerFullscreen();
     }
     resetViewerFullscreenState();
+    fullscreenRejectedLogged = false;
     isAdvancing = false;
   };
 
@@ -321,8 +400,11 @@
   document.addEventListener('ended', async (event) => {
     const video = isViewerVideo(event.target);
     if (!video || isAdvancing) return;
+    // 连播关闭时保留自动全屏能力，但不自动切换
+    if (!isPlaylistEnabled()) return;
 
     isAdvancing = true;
+    log(T('视频播放结束，准备连播下一条', 'Video ended, advancing to the next one'));
     // 只退出画中画，全屏保持，连播期间不再重新请求全屏
     await leavePictureInPicture(video);
     window.setTimeout(() => {
