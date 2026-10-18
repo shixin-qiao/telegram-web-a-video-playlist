@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "使用问题 / Usage questions"
+    url: https://github.com/shixin-qiao/telegram-web-a-video-playlist#常见问题
+    about: "先看看 README 的常见问题，也许已经有答案 / Check the FAQ in README first"

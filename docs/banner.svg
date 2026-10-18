@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="Telegram Web A Video Playlist — Tampermonkey Userscript">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="0.55" stop-color="#0f1b2d"/>
+      <stop offset="1" stop-color="#12233a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="0.5" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#229ED9"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16243a"/>
+      <stop offset="1" stop-color="#101a2b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.82" cy="0.18" r="0.75">
+      <stop offset="0" stop-color="#229ED9" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#229ED9" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="300" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="300" rx="28" fill="url(#glow)"/>
+
+  <circle cx="1096" cy="52" r="2.5" fill="#38bdf8" opacity="0.7"/>
+  <circle cx="1140" cy="86" r="1.8" fill="#7dd3fc" opacity="0.5"/>
+  <circle cx="1058" cy="30" r="1.6" fill="#7dd3fc" opacity="0.4"/>
+
+  <text x="64" y="104" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="5" fill="#5b7fa6">TAMPERMONKEY USERSCRIPT</text>
+  <text x="62" y="170" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="52" font-weight="700" fill="#e8eef7">Telegram Web A</text>
+  <text x="62" y="230" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="52" font-weight="700" fill="url(#accent)">Video Playlist</text>
+  <text x="64" y="264" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#8ba3bf">Auto fullscreen &#183; Autoplay next &#183; Skip images</text>
+
+  <g transform="translate(858,68)">
+    <rect width="286" height="164" rx="20" fill="url(#card)" stroke="#22375a" stroke-width="1.2"/>
+    <circle cx="74" cy="62" r="31" fill="#229ED9" opacity="0.16"/>
+    <circle cx="74" cy="62" r="31" fill="none" stroke="#38bdf8" stroke-width="1.4" opacity="0.65"/>
+    <path d="M65 47 L88 62 L65 77 Z" fill="#7dd3fc"/>
+
+    <rect x="38" y="112" width="210" height="6" rx="3" fill="#23385a"/>
+    <rect x="38" y="112" width="128" height="6" rx="3" fill="url(#accent)"/>
+    <circle cx="166" cy="115" r="5" fill="#7dd3fc"/>
+
+    <text x="38" y="143" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" letter-spacing="3" fill="#5b7fa6">NEXT &#9654;</text>
+
+    <g transform="translate(216,34)">
+      <rect width="38" height="38" rx="9" fill="#0d1626" stroke="#2b4368" stroke-width="1.2"/>
+      <circle cx="13" cy="13" r="4" fill="#3b5b86"/>
+      <path d="M6 31 L15 20 L22 28 L28 22 L35 31 Z" fill="#3b5b86"/>
+      <line x1="3" y1="3" x2="35" y2="35" stroke="#f87171" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+    </g>
+  </g>
+</svg>

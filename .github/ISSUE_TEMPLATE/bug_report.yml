@@ -1,0 +1,70 @@
+name: "Bug 反馈 / Bug report"
+description: "报告脚本问题时请填写以下信息 / Report a problem with the script"
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填写完整，方便定位问题。
+        Thanks for reporting! Please fill in as much as possible.
+
+  - type: input
+    id: browser
+    attributes:
+      label: "浏览器与版本 / Browser & version"
+      placeholder: "Chrome 138 / Edge 138 / Firefox 140 ..."
+    validations:
+      required: true
+
+  - type: input
+    id: script-version
+    attributes:
+      label: "脚本版本 / Script version"
+      description: "在 Tampermonkey 仪表盘中可以看到 / Shown in the Tampermonkey dashboard"
+      placeholder: "1.5.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: features
+    attributes:
+      label: "涉及的功能 / Affected features"
+      multiple: true
+      options:
+        - "自动全屏 / Auto fullscreen"
+        - "连播 / Playlist"
+        - "跳过图片 / Skip images"
+        - "方向切换 / Direction"
+        - "安装或其他 / Installation or others"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "复现步骤 / Steps to reproduce"
+      placeholder: "1. 打开 https://web.telegram.org/a/\n2. 点击视频 ...\n3. ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "期望行为 / Expected behavior"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: "实际行为 / Actual behavior"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "控制台日志 / Console logs"
+      description: "按 F12 打开控制台，筛选 `[TG Playlist]`，把相关日志贴在这里 / Filter the console by `[TG Playlist]` and paste the logs here"
+      render: text
