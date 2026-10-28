@@ -3,6 +3,24 @@
 本项目的所有重要变更都会记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] - 2026-10-28
+
+### 修复 Fixed
+- 修复个别图片（尤其是懒加载、`src` 尚未就绪的图片）识别失败，导致连播提前结束、停在该图片上的问题。
+  Fixed some images (especially lazy-loaded ones without a ready `src`) not being recognized, which ended the playlist early.
+- 切换判定改为同时比较媒体 key 与 DOM 元素，避免元素已替换但 key 相同造成误判。
+  Media change detection now compares both the key and the DOM element, avoiding false negatives when the key stays the same.
+- 切换超时不再直接当作已到末尾：会先重试 2 次，仍无法切换才退出全屏。
+  A switch timeout no longer ends the playlist immediately: it retries twice before concluding the playlist has ended.
+- 视频加载等待时间从 2.5 秒延长到 5 秒，避免网络较慢时提前放弃。
+  Extended the video-ready wait from 2.5s to 5s for slower networks.
+
+### 新增 Added
+- 图片识别兼容 `src` 未就绪的 `<img>` 与 `<canvas>` 渲染的图片，加载中会短暂等待再继续跳过。
+  Recognize images before `src` is ready and support canvas-rendered images; wait briefly while loading.
+- 连播过程中出现切换超时、图片加载、未识别媒体时，控制台会输出 `[TG Playlist]` 日志，便于反馈问题。
+  Added `[TG Playlist]` console logs for switch timeouts, image loading and unknown media types.
+
 ## [1.5.1] - 2026-10-18
 
 ### 新增 Added

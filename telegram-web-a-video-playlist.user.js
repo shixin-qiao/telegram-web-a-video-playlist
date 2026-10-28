@@ -3,7 +3,7 @@
 // @name:en      Telegram Web A Video Playlist
 // @name:zh-CN   Telegram Web A 视频播完自动切换
 // @namespace    local.codex.telegram
-// @version      1.5.1
+// @version      1.5.2
 // @description  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
 // @description:en  Telegram Web A media viewer video playlist: auto fullscreen on play, auto-play the next/previous video when one ends, and auto-skip images. Playlist, auto fullscreen and image skipping are configurable.
 // @description:zh-CN  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
@@ -43,11 +43,13 @@
 
   // 连播参数
   const SWITCH_POLL_INTERVAL = 100;   // 检查媒体是否已切换的间隔
-  const SWITCH_TIMEOUT = 1600;        // 单次切换的最长等待时间，超过视为无法切换（已到末尾）
+  const SWITCH_TIMEOUT = 1600;        // 单次切换的最长等待时间，超过后先重试，而不是直接判定为末尾
+  const SWITCH_MAX_RETRIES = 2;       // 切换超时后的重试次数，避免加载慢时误判为已到末尾
   const SKIP_DELAY = 150;             // 跳过图片前的短暂停顿
   const MAX_SKIPS = 50;               // 一次连播最多跳过多少条媒体，避免死循环
   const MAX_ADVANCE_TIME = 60000;     // 一次连播的最长持续时间
-  const VIDEO_READY_TIMEOUT = 2500;   // 等待新视频出现并开始播放的最长时间
+  const IMAGE_READY_TIMEOUT = 2500;   // 图片尚未加载出 URL 时，最多等待多久再继续
+  const VIDEO_READY_TIMEOUT = 5000;   // 等待新视频出现并开始播放的最长时间
   const ADVANCING_RESET_DELAY = 800;  // 兜底：连播结束后多久允许再次触发
   const VIEWER_CHECK_INTERVAL = 800;  // 检查媒体查看器是否已关闭的间隔
 
@@ -182,11 +184,26 @@
       };
     }
 
+    // 图片：即使 src 还没就绪（懒加载）也识别为图片，避免被当成未知媒体后误判切换失败
     const img = slide.querySelector('.MediaViewerContent img') || slide.querySelector('img');
-    if (img && (img.currentSrc || img.src)) {
+    if (img) {
+      const src = (img.currentSrc || img.src || '').trim();
       return {
         type: 'image',
-        key: 'i:' + (img.currentSrc || img.src),
+        image: img,
+        loading: !src,
+        key: src ? 'i:' + src : 'i:loading',
+      };
+    }
+
+    // 部分图片会渲染成 canvas
+    const canvas = slide.querySelector('canvas');
+    if (canvas) {
+      return {
+        type: 'image',
+        image: canvas,
+        loading: false,
+        key: 'c:' + slide.querySelectorAll('*').length,
       };
     }
 
@@ -268,16 +285,40 @@
     }
   };
 
-  // 等待媒体切换完成；返回 null 表示查看器已关闭或切换超时（通常说明已到末尾）
-  const waitForMediaChange = async (previousKey) => {
+  // 判断是否还是同一个媒体：key 不变且 DOM 元素没换，才算没切换
+  const isSameMedia = (previous, current) => {
+    if (!previous || !current) return false;
+    if (previous.key !== current.key) return false;
+    if (previous.video && current.video && previous.video !== current.video) return false;
+    if (previous.image && current.image && previous.image !== current.image) return false;
+    return true;
+  };
+
+  // 等待媒体切换完成
+  // 返回 { status: 'changed', media } / { status: 'timeout', media } / { status: 'closed' }
+  const waitForMediaChange = async (previousMedia) => {
     const startedAt = Date.now();
     while (Date.now() - startedAt < SWITCH_TIMEOUT) {
       const media = getActiveMedia();
-      if (!media) return null;
-      if (media.key !== previousKey) return media;
+      if (!media) return { status: 'closed' };
+      if (!isSameMedia(previousMedia, media)) return { status: 'changed', media };
       await delay(SWITCH_POLL_INTERVAL);
     }
-    return null;
+    const media = getActiveMedia();
+    if (!media) return { status: 'closed' };
+    if (!isSameMedia(previousMedia, media)) return { status: 'changed', media };
+    return { status: 'timeout', media };
+  };
+
+  // 图片还没加载出 URL 时稍等它加载，避免因为拿不到地址而误判
+  const waitForImageReady = async (image, timeout) => {
+    if (!image || image.tagName !== 'IMG') return;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeout) {
+      const src = (image.currentSrc || image.src || '').trim();
+      if (src && image.complete) return;
+      await delay(100);
+    }
   };
 
   // 等待新视频元素出现并开始播放
@@ -310,12 +351,13 @@
 
   // 视频播完后：保持全屏，向后（或向前）寻找下一个媒体
   // - 遇到视频：自动播放
-  // - 遇到图片且“跳过图片”开启：继续跳过
+  // - 遇到图片且“跳过图片”开启：继续跳过（图片加载中会稍等）
   // - 遇到图片且“跳过图片”关闭：停在这张图片上
-  // - 没有更多媒体：退出全屏
+  // - 切换超时会先重试，仍无变化才视为已到末尾并退出全屏
   const advanceToNextVideo = async () => {
     const startedAt = Date.now();
     let skips = 0;
+    let retries = 0;
     let foundNextMedia = false;
 
     const first = getActiveMedia();
@@ -323,18 +365,28 @@
       finishAdvancing();
       return;
     }
-    let previousKey = first.key;
+    let previousMedia = first;
 
     while (skips < MAX_SKIPS && Date.now() - startedAt < MAX_ADVANCE_TIME) {
       dispatchNavigationKey();
       skips += 1;
 
-      const media = await waitForMediaChange(previousKey);
-      if (!media) {
-        // 切换没有生效（已经是最后一条）或查看器已关闭，结束连播
-        break;
+      const result = await waitForMediaChange(previousMedia);
+      if (result.status === 'closed') break;
+
+      if (result.status === 'timeout') {
+        retries += 1;
+        log(T(
+          `连播切换超时（第 ${retries} 次），媒体可能加载较慢或已到末尾`,
+          `Playlist switch timed out (attempt ${retries}); the media may be loading slowly or this is the end`
+        ));
+        if (retries >= SWITCH_MAX_RETRIES) break;
+        continue;
       }
-      previousKey = media.key;
+
+      retries = 0;
+      const media = result.media;
+      previousMedia = media;
 
       if (media.type === 'video') {
         foundNextMedia = await waitForVideo();
@@ -345,6 +397,13 @@
         // 关闭“跳过图片”时停在这张图片上
         foundNextMedia = true;
         break;
+      }
+
+      if (media.type === 'image' && media.loading) {
+        log(T('图片仍在加载，稍等后继续跳过', 'Image is still loading, waiting before skipping'));
+        await waitForImageReady(media.image, IMAGE_READY_TIMEOUT);
+      } else if (media.type === 'other') {
+        log(T('遇到未识别的媒体，尝试继续跳过', 'Unknown media type, trying to skip it'));
       }
 
       // 图片 / 其他媒体：保持全屏，继续向后寻找视频
