@@ -15,12 +15,12 @@ Thanks for your interest in contributing! Bug reports, feature ideas and pull re
 ## 提交代码 / Pull requests
 
 1. Fork 本仓库并从 `main` 创建分支：`feat/xxx` 或 `fix/xxx`。
-2. 修改 `telegram-web-a-video-playlist.user.js`，保持原有代码风格（2 空格缩进、中文注释优先）。
+2. 修改 `src/telegram-web-a-video-playlist.user.js`，保持原有代码风格（2 空格缩进、中文注释优先）。
 3. 运行本地测试，确认通过。
 4. 提交 PR 并在描述中说明改动目的、影响范围和验证方式。
 
 1. Fork the repo and create a branch from `main`: `feat/xxx` or `fix/xxx`.
-2. Edit `telegram-web-a-video-playlist.user.js` and keep the existing code style.
+2. Edit `src/telegram-web-a-video-playlist.user.js` and keep the existing code style.
 3. Run the local tests and make sure they pass.
 4. Open a PR describing the purpose, impact and how it was verified.
 

@@ -3,7 +3,7 @@
 // @name:en      Telegram Web A Video Playlist
 // @name:zh-CN   Telegram Web A 视频播完自动切换
 // @namespace    local.codex.telegram
-// @version      1.6.0
+// @version      1.6.1
 // @description  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
 // @description:en  Telegram Web A media viewer video playlist: auto fullscreen on play, auto-play the next/previous video when one ends, and auto-skip images. Playlist, auto fullscreen and image skipping are configurable.
 // @description:zh-CN  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
@@ -17,8 +17,8 @@
 // @supportURL   https://github.com/shixin-qiao/telegram-web-a-video-playlist/issues
 // @compatible   chrome
 // @compatible   edge
-// @downloadURL  https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/telegram-web-a-video-playlist.user.js
-// @updateURL    https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/telegram-web-a-video-playlist.user.js
+// @downloadURL  https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/src/telegram-web-a-video-playlist.user.js
+// @updateURL    https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/src/telegram-web-a-video-playlist.user.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand

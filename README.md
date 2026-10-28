@@ -108,7 +108,7 @@ Recent Chrome / Edge versions require the extension developer mode for third-par
 点击下面的按钮，Tampermonkey 会自动打开安装页面，确认后点「安装」。
 Click the button below; Tampermonkey opens the install page — confirm with **Install**.
 
-[![安装脚本 / Install](https://img.shields.io/badge/%E2%AC%87_%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85-Tampermonkey-229ED9?style=for-the-badge)](https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/telegram-web-a-video-playlist.user.js)
+[![安装脚本 / Install](https://img.shields.io/badge/%E2%AC%87_%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85-Tampermonkey-229ED9?style=for-the-badge)](https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/src/telegram-web-a-video-playlist.user.js)
 
 如果浏览器只是显示了脚本源码，可以复制全部内容，用方式 B 安装。
 If the browser only shows the source code, copy everything and use Option B.
@@ -119,7 +119,7 @@ If the browser only shows the source code, copy everything and use Option B.
    Click the Tampermonkey icon → **Dashboard**.
 2. 切换到「已安装脚本」标签，点击「+」新建脚本。
    Open the **Installed Userscripts** tab → click **+**.
-3. 删除编辑器里的模板内容，粘贴本仓库的 [`telegram-web-a-video-playlist.user.js`](https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/telegram-web-a-video-playlist.user.js) 全部内容。
+3. 删除编辑器里的模板内容，粘贴本仓库的 [`telegram-web-a-video-playlist.user.js`](https://raw.githubusercontent.com/shixin-qiao/telegram-web-a-video-playlist/main/src/telegram-web-a-video-playlist.user.js) 全部内容。
    Replace the template with the whole file.
 4. 按 `Ctrl + S`（macOS 为 `Cmd + S`）保存。
    Press `Ctrl + S` (`Cmd + S` on macOS) to save.

@@ -3,6 +3,17 @@
 本项目的所有重要变更都会记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.1] - 2026-10-28
+
+### 变更 Changed
+- 脚本文件移动到 `src/telegram-web-a-video-playlist.user.js`，仓库根目录只保留文档与配置。
+  Moved the userscript to `src/telegram-web-a-video-playlist.user.js`; the repository root now keeps only docs and config.
+- `@downloadURL` / `@updateURL`、README 安装链接与贡献指南中的路径同步更新。
+  Updated `@downloadURL` / `@updateURL`, README install links and CONTRIBUTING paths.
+
+> 注意：因为安装/更新地址发生变化，已经安装旧版本的脚本无法自动检查更新，需要按 README 重新安装一次。
+> Note: because the install/update URL changed, existing installations cannot auto-update; reinstall once from the README link.
+
 ## [1.6.0] - 2026-10-28
 
 ### 修复 Fixed
