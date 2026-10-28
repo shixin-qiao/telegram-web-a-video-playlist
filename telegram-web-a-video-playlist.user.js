@@ -3,7 +3,7 @@
 // @name:en      Telegram Web A Video Playlist
 // @name:zh-CN   Telegram Web A 视频播完自动切换
 // @namespace    local.codex.telegram
-// @version      1.5.2
+// @version      1.5.3
 // @description  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
 // @description:en  Telegram Web A media viewer video playlist: auto fullscreen on play, auto-play the next/previous video when one ends, and auto-skip images. Playlist, auto fullscreen and image skipping are configurable.
 // @description:zh-CN  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
@@ -61,6 +61,10 @@
   let scriptExitingFullscreen = false;
   let viewerWasOpen = false;
   let fullscreenRejectedLogged = false;
+  // 最近一次连播操作的时间：用于区分“用户主动退出全屏”和“连播切换导致的退出”
+  let lastAdvancingAt = 0;
+  // 上一次全屏的元素，用于判断退出的到底是不是脚本请求的整页全屏
+  let lastFullscreenElement = null;
 
   /* ---------- 菜单命令 ---------- */
 
@@ -245,24 +249,32 @@
     const done = () => {
       fullscreenRequestPending = false;
     };
+    log(T('请求自动全屏（整页）', 'Requesting auto fullscreen (page level)'));
     try {
       const promise = target.requestFullscreen();
       if (promise && typeof promise.then === 'function') {
-        promise.then(done, () => {
-          done();
-          if (!fullscreenRejectedLogged) {
-            fullscreenRejectedLogged = true;
-            log(T(
-              '自动全屏被浏览器拦截（需要用户手势），再次播放时会重试',
-              'Auto fullscreen was blocked (a user gesture is required); it will retry on the next play'
-            ));
+        promise.then(
+          () => {
+            done();
+            log(T('自动全屏成功', 'Auto fullscreen entered'));
+          },
+          () => {
+            done();
+            if (!fullscreenRejectedLogged) {
+              fullscreenRejectedLogged = true;
+              log(T(
+                '自动全屏被浏览器拦截（需要用户手势），再次播放时会重试',
+                'Auto fullscreen was blocked (a user gesture is required); it will retry on the next play'
+              ));
+            }
           }
-        });
+        );
       } else {
         done();
       }
     } catch (error) {
       done();
+      log(T('自动全屏请求异常', 'Auto fullscreen request threw an error'), error);
     }
   };
 
@@ -368,6 +380,7 @@
     let previousMedia = first;
 
     while (skips < MAX_SKIPS && Date.now() - startedAt < MAX_ADVANCE_TIME) {
+      lastAdvancingAt = Date.now();
       dispatchNavigationKey();
       skips += 1;
 
@@ -464,6 +477,7 @@
     if (!isPlaylistEnabled()) return;
 
     isAdvancing = true;
+    lastAdvancingAt = Date.now();
     log(T('视频播放结束，准备连播下一条', 'Video ended, advancing to the next one'));
     // 只退出画中画，全屏保持，连播期间不再重新请求全屏
     await leavePictureInPicture(video);
@@ -475,10 +489,39 @@
   }, true);
 
   document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && !scriptExitingFullscreen) {
-      // 用户主动退出全屏：本次查看器会话不再自动全屏
-      userExitedFullscreen = true;
+    const current = document.fullscreenElement || null;
+
+    if (current) {
+      lastFullscreenElement = current;
+      scriptExitingFullscreen = false;
+      log(T(
+        `进入全屏（${current === document.documentElement ? '整页' : '其他元素'}）`,
+        `Entered fullscreen (${current === document.documentElement ? 'page' : 'other element'})`
+      ));
+      return;
     }
+
+    const exitedElement = lastFullscreenElement;
+    lastFullscreenElement = null;
+    const wasScriptFullscreen = exitedElement === document.documentElement;
+    const byScript = scriptExitingFullscreen;
+    // 连播切换期间（或刚切换过 3 秒内）的退出，通常是媒体元素替换、Telegram 播放器自己清理全屏导致的
+    const duringAdvancing = isAdvancing || (Date.now() - lastAdvancingAt < 3000);
     scriptExitingFullscreen = false;
+
+    log(T(
+      `退出全屏（${wasScriptFullscreen ? '整页' : '其他元素'}，脚本主动=${byScript}，连播中=${duringAdvancing}）`,
+      `Exited fullscreen (${wasScriptFullscreen ? 'page' : 'other element'}, byScript=${byScript}, advancing=${duringAdvancing})`
+    ));
+
+    // 只有“脚本请求的整页全屏被用户主动退出”才禁用本次会话的自动全屏。
+    // 连播切换、视频元素替换、Telegram 播放器自己的全屏清理都不应影响后续自动全屏。
+    if (wasScriptFullscreen && !byScript && !duringAdvancing) {
+      userExitedFullscreen = true;
+      log(T(
+        '检测到手动退出全屏：本次查看器会话不再自动全屏',
+        'Manual fullscreen exit detected: auto fullscreen disabled for this viewer session'
+      ));
+    }
   }, true);
 })();

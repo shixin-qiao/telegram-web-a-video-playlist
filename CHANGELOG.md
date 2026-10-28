@@ -3,6 +3,18 @@
 本项目的所有重要变更都会记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.3] - 2026-10-28
+
+### 修复 Fixed
+- 修复连播时全屏状态异常：用户手动全屏了视频元素、或 Telegram 在切换媒体时自行退出全屏，会被误判为「用户主动退出全屏」，导致本次查看器会话后续视频不再自动全屏。
+  Fixed inconsistent fullscreen state during the playlist: manual video-element fullscreen or Telegram's own fullscreen cleanup while switching media was misread as a user exit, disabling auto fullscreen for the rest of the session.
+- 现在只有「脚本请求的整页全屏被用户主动退出」才会停用自动全屏；媒体切换、元素替换造成的退出会在下一个视频播放时自动恢复全屏。
+  Auto fullscreen is now disabled only when the script's page-level fullscreen is exited by the user; exits caused by media switching or element replacement are recovered on the next video.
+
+### 新增 Added
+- 控制台新增全屏状态日志（请求 / 进入 / 退出及退出原因），便于排查全屏问题。
+  Added fullscreen state logs (request / enter / exit with reason) to the console for easier troubleshooting.
+
 ## [1.5.2] - 2026-10-28
 
 ### 修复 Fixed
