@@ -3,7 +3,7 @@
 // @name:en      Telegram Web A Video Playlist
 // @name:zh-CN   Telegram Web A 视频播完自动切换
 // @namespace    local.codex.telegram
-// @version      1.5.3
+// @version      1.6.0
 // @description  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
 // @description:en  Telegram Web A media viewer video playlist: auto fullscreen on play, auto-play the next/previous video when one ends, and auto-skip images. Playlist, auto fullscreen and image skipping are configurable.
 // @description:zh-CN  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
@@ -150,10 +150,41 @@
     }));
   };
 
-  const leavePictureInPicture = async (video) => {
+  // 退出画中画，并退出全屏后等待完成
+  // 为什么必须先退出全屏：Telegram 只要检测到 document 有任何全屏元素，
+  // 就会进入“全屏模式”并注销媒体查看器的方向键/点击导航，
+  // 不退出全屏的话连播切换会被禁用（上/下一条按钮也会失灵）。
+  const leaveFullscreenAndPip = async (video) => {
     if (document.pictureInPictureElement === video && document.exitPictureInPicture) {
       await document.exitPictureInPicture().catch(() => undefined);
     }
+    if (!document.fullscreenElement) return;
+
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('fullscreenchange', onExit, true);
+        // 给浏览器一点时间完成退出全屏后的布局切换
+        window.setTimeout(resolve, 80);
+      };
+      const onExit = () => {
+        if (!document.fullscreenElement) finish();
+      };
+      document.addEventListener('fullscreenchange', onExit, true);
+      window.setTimeout(finish, 900); // 兜底，避免 exitFullscreen 不触发事件时卡住
+
+      scriptExitingFullscreen = true;
+      try {
+        const promise = document.exitFullscreen();
+        if (promise && typeof promise.then === 'function') {
+          promise.then(finish, finish);
+        }
+      } catch (error) {
+        finish();
+      }
+    });
   };
 
   /* ---------- 读取媒体查看器当前状态 ---------- */
@@ -479,8 +510,9 @@
     isAdvancing = true;
     lastAdvancingAt = Date.now();
     log(T('视频播放结束，准备连播下一条', 'Video ended, advancing to the next one'));
-    // 只退出画中画，全屏保持，连播期间不再重新请求全屏
-    await leavePictureInPicture(video);
+    // 先退出全屏再切换：全屏状态下 Telegram 会禁用查看器导航，
+    // 退出全屏后方向键/上下一条按钮才恢复可用，切换完成后的视频会再次尝试自动全屏
+    await leaveFullscreenAndPip(video);
     window.setTimeout(() => {
       advanceToNextVideo().catch(() => {
         isAdvancing = false;

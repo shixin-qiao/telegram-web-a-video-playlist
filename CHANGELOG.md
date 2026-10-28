@@ -3,6 +3,20 @@
 本项目的所有重要变更都会记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-10-28
+
+### 修复 Fixed
+- 修复全屏播放时出现双重进度条、上一条/下一条按钮失灵、连播无法切换的问题。
+  Fixed double progress bars, broken prev/next buttons and stalled playlist switching during fullscreen playback.
+  原因：Telegram Web A 只要检测到页面上有任何全屏元素，就会进入「全屏模式」——给视频打开浏览器原生控件（与它自己的控件叠加成双重进度条），并注销媒体查看器的方向键和点击导航。现在视频播放结束后会先退出全屏，再切换下一条。
+  Cause: Telegram Web A treats any fullscreen element as "fullscreen mode" — it enables native video controls (stacking with its own) and disables the media viewer's keyboard/click navigation. The script now exits fullscreen before advancing.
+
+### 变更 Changed
+- 连播流程改为：视频播放时自动全屏 → 播放结束先退出全屏 → 切换到下一条 → 下一条视频播放时再次尝试自动全屏。
+  Playlist flow: auto fullscreen while playing → exit fullscreen when the video ends → advance → try fullscreen again on the next video.
+- 重新进入全屏需要浏览器的用户手势，自动连播时可能被浏览器拒绝；被拒时保持普通模式继续连播，不中断。
+  Re-entering fullscreen requires a user gesture and may be rejected during autoplay; the playlist then continues in normal mode without stopping.
+
 ## [1.5.3] - 2026-10-28
 
 ### 修复 Fixed
