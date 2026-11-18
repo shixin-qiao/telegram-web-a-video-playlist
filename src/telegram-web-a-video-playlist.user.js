@@ -3,7 +3,7 @@
 // @name:en      Telegram Web A Video Playlist
 // @name:zh-CN   Telegram Web A 视频播完自动切换
 // @namespace    local.codex.telegram
-// @version      1.6.1
+// @version      1.7.0
 // @description  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
 // @description:en  Telegram Web A media viewer video playlist: auto fullscreen on play, auto-play the next/previous video when one ends, and auto-skip images. Playlist, auto fullscreen and image skipping are configurable.
 // @description:zh-CN  Telegram Web A 媒体查看器视频连播器：视频播放时自动整页全屏，播放结束自动连播下一条/上一条，图片自动跳过；连播、自动全屏、跳过图片均可独立开关。
@@ -22,6 +22,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        unsafeWindow
+// @sandbox      JavaScript
 // ==/UserScript==
 
 (() => {
@@ -51,26 +53,124 @@
   const IMAGE_READY_TIMEOUT = 2500;   // 图片尚未加载出 URL 时，最多等待多久再继续
   const VIDEO_READY_TIMEOUT = 5000;   // 等待新视频出现并开始播放的最长时间
   const ADVANCING_RESET_DELAY = 800;  // 兜底：连播结束后多久允许再次触发
-  const VIEWER_CHECK_INTERVAL = 800;  // 检查媒体查看器是否已关闭的间隔
+  const VIEWER_CHECK_INTERVAL = 500;  // 检查媒体查看器是否已关闭的间隔
+  const GESTURE_WATCH_TIME = 1500;    // 用户点击后，多长时间内等待查看器打开视频并请求全屏
+  const GESTURE_POLL_INTERVAL = 50;
+  const ESC_GUARD_TIME = 500;         // 退出整页全屏后多久内的 Esc 不交给 Telegram（避免顺带关闭查看器）
+
+  const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+  const pageDocument = pageWindow.document;
 
   let isAdvancing = false;
-  // 用户在本次查看器会话中手动退出过全屏：不再主动全屏（无用户手势也无法再次全屏）
+  // 用户在本次查看器会话中手动退出过整页全屏：不再主动全屏
   let userExitedFullscreen = false;
   let fullscreenRequestPending = false;
   // 是否由脚本主动退出全屏（用于区分用户手动退出）
   let scriptExitingFullscreen = false;
   let viewerWasOpen = false;
   let fullscreenRejectedLogged = false;
-  // 最近一次连播操作的时间：用于区分“用户主动退出全屏”和“连播切换导致的退出”
-  let lastAdvancingAt = 0;
-  // 上一次全屏的元素，用于判断退出的到底是不是脚本请求的整页全屏
+  // 上一次的全屏元素，用于判断进入/退出的是不是脚本的整页全屏
   let lastFullscreenElement = null;
+  let lastTransitionWasPage = false;
+  let pageFullscreenExitedAt = 0;
+  let gestureWatchTimer = 0;
+
+  /* ---------- 基础工具 ---------- */
+
+  const delay = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+  const log = (...args) => {
+    console.log(LOG_PREFIX, ...args);
+  };
+
+  // 不用 alert：弹出对话框会让浏览器强制退出全屏
+  const toast = (text) => {
+    log(text);
+    const root = document.body || document.documentElement;
+    if (!root) return;
+    const el = document.createElement('div');
+    el.textContent = text;
+    el.style.cssText = [
+      'position:fixed', 'left:50%', 'top:24px', 'transform:translateX(-50%)',
+      'z-index:2147483647', 'padding:8px 16px', 'border-radius:8px',
+      'background:rgba(0,0,0,.8)', 'color:#fff', 'font:14px/1.4 system-ui,sans-serif',
+      'pointer-events:none',
+    ].join(';');
+    root.appendChild(el);
+    window.setTimeout(() => el.remove(), 2000);
+  };
+
+  /* ---------- 对 Telegram 隐藏整页全屏 ----------
+   * Telegram Web A 只要读到 document.fullscreenElement 有值（或收到 fullscreenchange），
+   * 就会进入自己的“全屏模式”：给视频打开原生控件（双重进度条），并注销查看器的方向键/点击导航。
+   * 脚本请求的是整页（documentElement）全屏，对 Telegram 而言页面布局没有任何变化，
+   * 所以这里让 Telegram 看不到它：
+   * - 改写 Document.prototype 上的全屏相关 getter，整页全屏时返回 null / false；
+   * - 在 window 捕获阶段拦下整页全屏的 fullscreenchange，不让它传到 Telegram 的监听器。
+   * Telegram 播放器自己的全屏按钮（全屏的是视频容器，不是 documentElement）不受影响。
+   * 这样连播期间可以一直保持全屏，不需要每条视频退出再重进（重进没有用户手势会被浏览器拒绝）。
+   */
+
+  const realGetters = {};
+  let hidePatched = false;
+
+  const realFullscreenElementOf = (doc) => {
+    const getter = realGetters.fullscreenElement || realGetters.webkitFullscreenElement;
+    try {
+      return (getter ? getter.call(doc) : doc.fullscreenElement) || null;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const getRealFullscreenElement = () => realFullscreenElementOf(pageDocument);
+
+  const isPageFullscreen = () => {
+    const el = getRealFullscreenElement();
+    return Boolean(el) && el === pageDocument.documentElement;
+  };
+
+  const patchFullscreenGetters = () => {
+    try {
+      const proto = pageWindow.Document.prototype;
+      const elementProps = ['fullscreenElement', 'webkitFullscreenElement', 'webkitCurrentFullScreenElement'];
+      const booleanProps = ['fullscreen', 'webkitIsFullScreen'];
+
+      [...elementProps, ...booleanProps].forEach((prop) => {
+        const desc = Object.getOwnPropertyDescriptor(proto, prop);
+        if (desc && desc.get && desc.configurable) realGetters[prop] = desc.get;
+      });
+
+      [...elementProps, ...booleanProps].forEach((prop) => {
+        const originalGet = realGetters[prop];
+        if (!originalGet) return;
+        const hiddenValue = booleanProps.includes(prop) ? false : null;
+        const desc = Object.getOwnPropertyDescriptor(proto, prop);
+        Object.defineProperty(proto, prop, {
+          configurable: true,
+          enumerable: desc.enumerable,
+          get() {
+            const el = realFullscreenElementOf(this);
+            if (el && el === this.documentElement) return hiddenValue;
+            return originalGet.call(this);
+          },
+        });
+      });
+
+      hidePatched = Boolean(realGetters.fullscreenElement || realGetters.webkitFullscreenElement);
+    } catch (error) {
+      hidePatched = false;
+      log(T('无法隐藏整页全屏，退回到“播完先退出全屏”模式', 'Could not hide page fullscreen; falling back to exiting fullscreen before advancing'), error);
+    }
+  };
+
+  patchFullscreenGetters();
 
   /* ---------- 菜单命令 ---------- */
 
   const setDirection = (direction) => {
     GM_setValue(DIRECTION_KEY, direction);
-    window.alert(T(
+    toast(T(
       `Telegram 视频自动切换方向已设为：${direction === 'next' ? '下一条' : '上一条'}`,
       `Playback direction set to: ${direction === 'next' ? 'Next' : 'Previous'}`
     ));
@@ -84,7 +184,7 @@
     const next = !isAutoFullscreenEnabled();
     GM_setValue(AUTO_FULLSCREEN_KEY, next);
     if (!next) exitViewerFullscreen();
-    window.alert(T(
+    toast(T(
       `视频自动全屏已${next ? '开启' : '关闭'}`,
       `Auto fullscreen ${next ? 'enabled' : 'disabled'}`
     ));
@@ -97,7 +197,7 @@
   const togglePlaylist = () => {
     const next = !isPlaylistEnabled();
     GM_setValue(PLAYLIST_ENABLED_KEY, next);
-    window.alert(T(
+    toast(T(
       `视频连播已${next ? '开启' : '关闭'}`,
       `Video playlist ${next ? 'enabled' : 'disabled'}`
     ));
@@ -110,7 +210,7 @@
   const toggleSkipImages = () => {
     const next = !isSkipImagesEnabled();
     GM_setValue(SKIP_IMAGES_KEY, next);
-    window.alert(T(
+    toast(T(
       `连播时跳过图片已${next ? '开启' : '关闭'}`,
       `Skip images ${next ? 'enabled' : 'disabled'}`
     ));
@@ -122,74 +222,18 @@
   GM_registerMenuCommand(T('连播：开 / 关', 'Playlist: On / Off'), togglePlaylist);
   GM_registerMenuCommand(T('跳过图片：开 / 关', 'Skip Images: On / Off'), toggleSkipImages);
 
-  /* ---------- 基础工具 ---------- */
+  /* ---------- 读取媒体查看器当前状态 ---------- */
 
-  const delay = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
-
-  const log = (...args) => {
-    console.log(LOG_PREFIX, ...args);
-  };
+  const getViewer = () => document.querySelector('#MediaViewer[open]');
 
   const isViewerVideo = (target) => {
-    const viewer = document.querySelector('#MediaViewer[open]');
+    const viewer = getViewer();
     return target instanceof HTMLVideoElement
       && target.id === 'media-viewer-video'
       && viewer?.contains(target)
       ? target
       : undefined;
   };
-
-  const dispatchNavigationKey = () => {
-    const direction = GM_getValue(DIRECTION_KEY, DEFAULT_DIRECTION);
-    const isPrevious = direction === 'previous';
-    document.dispatchEvent(new KeyboardEvent('keydown', {
-      key: isPrevious ? 'ArrowLeft' : 'ArrowRight',
-      code: isPrevious ? 'ArrowLeft' : 'ArrowRight',
-      bubbles: true,
-      cancelable: true,
-    }));
-  };
-
-  // 退出画中画，并退出全屏后等待完成
-  // 为什么必须先退出全屏：Telegram 只要检测到 document 有任何全屏元素，
-  // 就会进入“全屏模式”并注销媒体查看器的方向键/点击导航，
-  // 不退出全屏的话连播切换会被禁用（上/下一条按钮也会失灵）。
-  const leaveFullscreenAndPip = async (video) => {
-    if (document.pictureInPictureElement === video && document.exitPictureInPicture) {
-      await document.exitPictureInPicture().catch(() => undefined);
-    }
-    if (!document.fullscreenElement) return;
-
-    await new Promise((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        document.removeEventListener('fullscreenchange', onExit, true);
-        // 给浏览器一点时间完成退出全屏后的布局切换
-        window.setTimeout(resolve, 80);
-      };
-      const onExit = () => {
-        if (!document.fullscreenElement) finish();
-      };
-      document.addEventListener('fullscreenchange', onExit, true);
-      window.setTimeout(finish, 900); // 兜底，避免 exitFullscreen 不触发事件时卡住
-
-      scriptExitingFullscreen = true;
-      try {
-        const promise = document.exitFullscreen();
-        if (promise && typeof promise.then === 'function') {
-          promise.then(finish, finish);
-        }
-      } catch (error) {
-        finish();
-      }
-    });
-  };
-
-  /* ---------- 读取媒体查看器当前状态 ---------- */
-
-  const getViewer = () => document.querySelector('#MediaViewer[open]');
 
   const getActiveSlide = () => {
     const viewer = getViewer();
@@ -215,7 +259,7 @@
       return {
         type: 'video',
         video: null,
-        key: 'vp:' + (poster ? poster.currentSrc || poster.src : '') + ':' + slide.querySelectorAll('*').length,
+        key: 'vp:' + (poster ? poster.currentSrc || poster.src : ''),
       };
     }
 
@@ -234,69 +278,66 @@
     // 部分图片会渲染成 canvas
     const canvas = slide.querySelector('canvas');
     if (canvas) {
-      return {
-        type: 'image',
-        image: canvas,
-        loading: false,
-        key: 'c:' + slide.querySelectorAll('*').length,
-      };
+      return { type: 'image', image: canvas, loading: false, key: 'c' };
     }
 
-    return { type: 'other', key: 'o:' + slide.querySelectorAll('*').length };
+    return { type: 'other', element: slide.firstElementChild, key: 'o' };
   };
 
   /* ---------- 全屏控制 ----------
-   * 全屏的是整页 documentElement 而不是 <video>：
-   * - 元素稳定，Web A 切换媒体时 React 重新渲染播放器不会中断全屏；
-   * - 连播期间保持全屏，不需要在没有用户手势时再次 requestFullscreen（浏览器会拒绝）。
+   * 全屏的是整页 documentElement 而不是 <video>：元素稳定，Telegram 切换媒体时
+   * 重新渲染播放器也不会中断全屏；配合上面的隐藏，连播全程只需要一次全屏请求。
    */
 
   const exitViewerFullscreen = () => {
-    if (!document.fullscreenElement || document.fullscreenElement !== document.documentElement) return;
+    if (!isPageFullscreen()) return Promise.resolve();
     scriptExitingFullscreen = true;
     try {
-      const promise = document.exitFullscreen();
+      const promise = pageDocument.exitFullscreen();
       if (promise && typeof promise.then === 'function') {
-        // fullscreenchange 是异步的，这里兜底复位标志
-        promise.then(
-          () => { scriptExitingFullscreen = false; },
-          () => { scriptExitingFullscreen = false; }
-        );
+        return promise.then(() => undefined, () => { scriptExitingFullscreen = false; });
       }
     } catch (error) {
       scriptExitingFullscreen = false;
     }
+    return Promise.resolve();
   };
 
-  const ensureViewerFullscreen = () => {
+  // 隐藏失败时的兜底：退出全屏并等 Telegram 恢复导航
+  const exitFullscreenAndWait = async () => {
+    await Promise.race([exitViewerFullscreen(), delay(900)]);
+    await delay(80);
+  };
+
+  const ensureViewerFullscreen = (reason) => {
     if (!isAutoFullscreenEnabled() || userExitedFullscreen) return;
-    if (document.fullscreenElement) return;
+    if (getRealFullscreenElement()) return;
     if (fullscreenRequestPending) return;
 
-    const target = document.documentElement;
+    const target = pageDocument.documentElement;
     if (!target || typeof target.requestFullscreen !== 'function') return;
 
     fullscreenRequestPending = true;
     const done = () => {
       fullscreenRequestPending = false;
     };
-    log(T('请求自动全屏（整页）', 'Requesting auto fullscreen (page level)'));
+    log(T(`请求自动全屏（整页，触发：${reason}）`, `Requesting auto fullscreen (page level, trigger: ${reason})`));
     try {
-      const promise = target.requestFullscreen();
+      const promise = target.requestFullscreen({ navigationUI: 'hide' });
       if (promise && typeof promise.then === 'function') {
         promise.then(
           () => {
             done();
             log(T('自动全屏成功', 'Auto fullscreen entered'));
           },
-          () => {
+          (error) => {
             done();
             if (!fullscreenRejectedLogged) {
               fullscreenRejectedLogged = true;
               log(T(
-                '自动全屏被浏览器拦截（需要用户手势），再次播放时会重试',
-                'Auto fullscreen was blocked (a user gesture is required); it will retry on the next play'
-              ));
+                '自动全屏被浏览器拦截（需要用户操作），点一下视频画面即可进入全屏',
+                'Auto fullscreen was blocked (a user gesture is required); click the video once to enter fullscreen'
+              ), error);
             }
           }
         );
@@ -309,12 +350,62 @@
     }
   };
 
+  // 浏览器只允许在用户操作后约 5 秒内请求全屏。
+  // 旧版在 play 事件里请求：视频加载慢时 play 晚于这个时间窗，全屏就失败（“时灵时不灵”）。
+  // 现在在用户点击/按键的那一刻开始，等查看器打开视频后立刻请求，保证在时间窗内。
+  const onUserGesture = (event) => {
+    if (!event.isTrusted) return;
+    if (event.type === 'keydown' && ['Escape', 'F11', 'Tab'].includes(event.key)) return;
+    if (!isAutoFullscreenEnabled() || userExitedFullscreen) return;
+    if (getRealFullscreenElement()) return;
+
+    const viewer = getViewer();
+    if (viewer) {
+      // 查看器已打开时，只有点视频画面或用方向键切换才触发，避免点“关闭”等按钮时闪一下全屏
+      const target = event.target instanceof Element ? event.target : null;
+      const onVideo = event.type === 'click'
+        && target && target.closest('.VideoPlayer, #media-viewer-video');
+      const isArrow = event.type === 'keydown' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
+      if (!onVideo && !isArrow) return;
+    }
+
+    const startedAt = Date.now();
+    window.clearTimeout(gestureWatchTimer);
+    const check = () => {
+      if (getRealFullscreenElement() || userExitedFullscreen) return;
+      const media = getActiveMedia();
+      if (media && media.type === 'video') {
+        ensureViewerFullscreen(event.type);
+        return;
+      }
+      if (Date.now() - startedAt < GESTURE_WATCH_TIME) {
+        gestureWatchTimer = window.setTimeout(check, GESTURE_POLL_INTERVAL);
+      }
+    };
+    check();
+  };
+
+  document.addEventListener('click', onUserGesture, true);
+  document.addEventListener('keydown', onUserGesture, true);
+
   const resetViewerFullscreenState = () => {
     userExitedFullscreen = false;
     fullscreenRequestPending = false;
+    fullscreenRejectedLogged = false;
   };
 
   /* ---------- 连播控制 ---------- */
+
+  const dispatchNavigationKey = () => {
+    const direction = GM_getValue(DIRECTION_KEY, DEFAULT_DIRECTION);
+    const isPrevious = direction === 'previous';
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: isPrevious ? 'ArrowLeft' : 'ArrowRight',
+      code: isPrevious ? 'ArrowLeft' : 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    }));
+  };
 
   const ensureVideoPlays = (video) => {
     if (!video || !video.paused) return;
@@ -334,6 +425,7 @@
     if (previous.key !== current.key) return false;
     if (previous.video && current.video && previous.video !== current.video) return false;
     if (previous.image && current.image && previous.image !== current.image) return false;
+    if (previous.element && current.element && previous.element !== current.element) return false;
     return true;
   };
 
@@ -411,7 +503,6 @@
     let previousMedia = first;
 
     while (skips < MAX_SKIPS && Date.now() - startedAt < MAX_ADVANCE_TIME) {
-      lastAdvancingAt = Date.now();
       dispatchNavigationKey();
       skips += 1;
 
@@ -465,21 +556,11 @@
   /* ---------- 查看器关闭处理 ---------- */
 
   const onViewerClosed = () => {
-    if (document.fullscreenElement === document.documentElement) {
-      exitViewerFullscreen();
-    }
+    exitViewerFullscreen();
     resetViewerFullscreenState();
-    fullscreenRejectedLogged = false;
     isAdvancing = false;
   };
 
-  document.addEventListener('close', (event) => {
-    if (event.target && event.target.id === 'MediaViewer') {
-      onViewerClosed();
-    }
-  }, true);
-
-  // 兜底：轮询检测查看器从打开变为关闭
   window.setInterval(() => {
     const isOpen = Boolean(getViewer());
     if (viewerWasOpen && !isOpen) {
@@ -495,8 +576,9 @@
     if (!video) return;
     // 循环视频（GIF）只播放一遍，播完才能触发 ended 继续连播
     if (video.loop) video.loop = false;
-    // 视频开始播放时自动全屏（第一次由打开查看器的用户手势授权）
-    ensureViewerFullscreen();
+    // 兜底：仍处在用户操作的有效期内时才请求全屏，避免无意义的被拒请求
+    const activation = navigator.userActivation;
+    if (!activation || activation.isActive) ensureViewerFullscreen('play');
     // 视频已真正开始播放：允许它播完后触发下一轮连播
     isAdvancing = false;
   }, true);
@@ -508,52 +590,83 @@
     if (!isPlaylistEnabled()) return;
 
     isAdvancing = true;
-    lastAdvancingAt = Date.now();
     log(T('视频播放结束，准备连播下一条', 'Video ended, advancing to the next one'));
-    // 先退出全屏再切换：全屏状态下 Telegram 会禁用查看器导航，
-    // 退出全屏后方向键/上下一条按钮才恢复可用，切换完成后的视频会再次尝试自动全屏
-    await leaveFullscreenAndPip(video);
-    window.setTimeout(() => {
-      advanceToNextVideo().catch(() => {
-        isAdvancing = false;
-      });
-    }, 100);
+
+    if (document.pictureInPictureElement === video && document.exitPictureInPicture) {
+      await document.exitPictureInPicture().catch(() => undefined);
+    }
+    // 整页全屏已对 Telegram 隐藏：保持全屏直接切换。
+    // 只有隐藏失败（Telegram 能看到全屏、导航被禁用）时才退回旧做法：先退出全屏再切换。
+    if (!hidePatched && isPageFullscreen()) {
+      await exitFullscreenAndWait();
+    }
+    await delay(100);
+    advanceToNextVideo().catch(() => {
+      isAdvancing = false;
+    });
   }, true);
 
-  document.addEventListener('fullscreenchange', () => {
-    const current = document.fullscreenElement || null;
+  // window 捕获阶段最先收到事件：先更新脚本状态，再决定是否对 Telegram 隐藏
+  const onFullscreenChange = (event) => {
+    const current = getRealFullscreenElement();
+    const previous = lastFullscreenElement;
+    const docEl = pageDocument.documentElement;
 
-    if (current) {
+    if (current !== previous) {
       lastFullscreenElement = current;
-      scriptExitingFullscreen = false;
-      log(T(
-        `进入全屏（${current === document.documentElement ? '整页' : '其他元素'}）`,
-        `Entered fullscreen (${current === document.documentElement ? 'page' : 'other element'})`
-      ));
-      return;
+      lastTransitionWasPage = current === docEl || previous === docEl;
+
+      if (current) {
+        scriptExitingFullscreen = false;
+        log(T(
+          `进入全屏（${current === docEl ? '整页' : '其他元素'}）`,
+          `Entered fullscreen (${current === docEl ? 'page' : 'other element'})`
+        ));
+      } else {
+        const byScript = scriptExitingFullscreen;
+        scriptExitingFullscreen = false;
+        if (previous === docEl) pageFullscreenExitedAt = Date.now();
+        log(T(
+          `退出全屏（${previous === docEl ? '整页' : '其他元素'}，脚本主动=${byScript}）`,
+          `Exited fullscreen (${previous === docEl ? 'page' : 'other element'}, byScript=${byScript})`
+        ));
+        // 整页全屏对 Telegram 隐藏后，Telegram 不会自己退出它；不是脚本退出的就是用户退出
+        if (previous === docEl && !byScript) {
+          userExitedFullscreen = true;
+          log(T(
+            '检测到手动退出全屏：本次查看器会话不再自动全屏',
+            'Manual fullscreen exit detected: auto fullscreen disabled for this viewer session'
+          ));
+        }
+      }
     }
 
-    const exitedElement = lastFullscreenElement;
-    lastFullscreenElement = null;
-    const wasScriptFullscreen = exitedElement === document.documentElement;
-    const byScript = scriptExitingFullscreen;
-    // 连播切换期间（或刚切换过 3 秒内）的退出，通常是媒体元素替换、Telegram 播放器自己清理全屏导致的
-    const duringAdvancing = isAdvancing || (Date.now() - lastAdvancingAt < 3000);
-    scriptExitingFullscreen = false;
-
-    log(T(
-      `退出全屏（${wasScriptFullscreen ? '整页' : '其他元素'}，脚本主动=${byScript}，连播中=${duringAdvancing}）`,
-      `Exited fullscreen (${wasScriptFullscreen ? 'page' : 'other element'}, byScript=${byScript}, advancing=${duringAdvancing})`
-    ));
-
-    // 只有“脚本请求的整页全屏被用户主动退出”才禁用本次会话的自动全屏。
-    // 连播切换、视频元素替换、Telegram 播放器自己的全屏清理都不应影响后续自动全屏。
-    if (wasScriptFullscreen && !byScript && !duringAdvancing) {
-      userExitedFullscreen = true;
-      log(T(
-        '检测到手动退出全屏：本次查看器会话不再自动全屏',
-        'Manual fullscreen exit detected: auto fullscreen disabled for this viewer session'
-      ));
+    if (hidePatched && lastTransitionWasPage) {
+      event.stopImmediatePropagation();
     }
+  };
+
+  window.addEventListener('fullscreenchange', onFullscreenChange, true);
+  window.addEventListener('webkitfullscreenchange', onFullscreenChange, true);
+
+  // Telegram 不知道页面处于全屏，Esc 退出全屏时会把它当成“关闭查看器”。
+  // 整页全屏期间（和刚退出时）的 Esc 只用来退出全屏，不交给 Telegram。
+  // 媒体查看器是原生 modal <dialog>：只拦 keydown 不够，Esc 的默认动作会让浏览器发出关闭请求，
+  // 所以还要 preventDefault，并兜底拦下 dialog 的 cancel 事件（cancel 不冒泡，但捕获阶段能收到）。
+  const shouldGuardEsc = () => (
+    hidePatched && (isPageFullscreen() || Date.now() - pageFullscreenExitedAt < ESC_GUARD_TIME)
+  );
+
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !shouldGuardEsc()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+
+  window.addEventListener('cancel', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element) || target.id !== 'MediaViewer' || !shouldGuardEsc()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
   }, true);
 })();

@@ -3,6 +3,28 @@
 本项目的所有重要变更都会记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-11-18
+
+### 修复 Fixed
+- 修复自动全屏时灵时不灵：浏览器只允许在用户操作后约 5 秒内请求全屏，旧版在视频开始播放时才请求，视频加载慢就会被拒。现在在点开视频的那一下请求全屏。
+  Fixed flaky auto fullscreen: browsers only allow fullscreen within about 5 seconds of a user action, and older versions requested it when playback started, which failed on slow-loading videos. Fullscreen is now requested on the click that opens the video.
+- 修复连播第二条起无法全屏：旧版每条视频播完都退出全屏，而重新进入没有用户手势，必然被浏览器拒绝。现在连播全程保持全屏。
+  Fixed later playlist videos not going fullscreen: older versions left fullscreen after every video, and re-entering without a user gesture is always rejected. The playlist now stays fullscreen.
+- 减少切换卡顿：不再每条视频退出、重进全屏（每次都会让整个页面重新排版），切换前的等待从最多约 1.1 秒降到约 0.1 秒。
+  Smoother transitions: no more leaving and re-entering fullscreen per video (each one re-laid out the whole page); the wait before switching drops from up to ~1.1 s to ~0.1 s.
+- 菜单开关的提示改为页面内提示，不再用 `alert`（对话框会让浏览器强制退出全屏）。
+  Menu toggles now show an in-page toast instead of `alert`, which forced the browser out of fullscreen.
+
+### 变更 Changed
+- 对 Telegram 隐藏脚本的整页全屏：改写 `document.fullscreenElement` 等 getter，并拦下整页全屏的 `fullscreenchange`。Telegram 因此不会进入它的全屏模式，导航照常可用，不出现双重进度条。Telegram 播放器自己的全屏按钮不受影响。
+  The script's page-level fullscreen is hidden from Telegram by patching the `document.fullscreenElement` getters and stopping the matching `fullscreenchange`, so Telegram stays out of its fullscreen mode: navigation keeps working and there are no double progress bars. Telegram's own fullscreen button is unaffected.
+- 整页全屏时按 `Esc` 只退出全屏，不会顺带关闭媒体查看器。
+  `Esc` during page fullscreen only exits fullscreen and no longer also closes the viewer.
+- 新增 `@grant unsafeWindow` 与 `@sandbox JavaScript`（改写页面的 getter 需要访问页面上下文）。
+  Added `@grant unsafeWindow` and `@sandbox JavaScript`, needed to patch getters in the page context.
+- 隐藏失败时自动退回 1.6.x 的做法（播完先退出全屏再切换）。
+  Falls back to the 1.6.x behavior (exit fullscreen before advancing) if hiding fails.
+
 ## [1.6.1] - 2026-10-28
 
 ### 变更 Changed
